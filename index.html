@@ -435,6 +435,8 @@ function vMais(v){
   <h2>Backup dos dados</h2>
   <div class="card"><p class="muted" style="margin-top:0">Seus dados ficam só neste aparelho. Faça backup de vez em quando (salve no Drive, iCloud ou WhatsApp para você mesmo).</p>
    <div class="grid2"><button class="btn primary" id="exp">Exportar backup</button><button class="btn" id="imp">Importar backup</button></div>
+   <div style="height:8px"></div><button class="btn block" id="impUpd">📥 Importar atualização de faturas</button>
+   <div class="hint">Use para os arquivos de atualização (ex.: atualizacao_faturas_nov26.json). Não apaga o que você cadastrou.</div>
    <div style="height:8px"></div><button class="btn block" id="csv">Exportar compras (CSV para Excel)</button>
    <div style="height:8px"></div><button class="btn danger block" id="wipe">Apagar todos os dados</button>
    <div class="hint">Último backup: ${S.ultimoBackup?new Date(S.ultimoBackup).toLocaleString('pt-BR'):'nunca'} · ${S.compras.length} compras, ${S.cards.length} cartões.</div></div>`;
@@ -442,7 +444,7 @@ function vMais(v){
   $('#addCd').onclick=()=>formCartao();
   v.querySelectorAll('[data-ct]').forEach(el=>el.onclick=()=>formCat(S.cats.find(c=>c.nome===el.dataset.ct)));
   $('#addCt').onclick=()=>formCat();
-  $('#exp').onclick=exportar;$('#imp').onclick=()=>$('#fileIn').click();$('#csv').onclick=exportarCSV;
+  $('#exp').onclick=exportar;$('#imp').onclick=()=>$('#fileIn').click();$('#impUpd').onclick=()=>$('#fileIn').click();$('#csv').onclick=exportarCSV;
   $('#wipe').onclick=()=>{if(confirm('Apagar TODOS os dados deste aparelho? Faça um backup antes.')&&confirm('Tem certeza?')){S=vazio();save();MES=null;render()}};
 }
 function formCartao(c){const ed=!!c;c=c?{...c}:{id:uid(),banco:'',nome:'',final:'',fecha:1,vence:10,limite:0,cor:CORES_CARTAO[S.cards.length%CORES_CARTAO.length],conf:true};
@@ -479,7 +481,16 @@ function exportar(){S.ultimoBackup=Date.now();save();baixar('faturas-backup-'+ho
 function exportarCSV(){const linhas=[['Data','Descrição','Cartão','Banco','Tipo','Parcelas','Valor parcela','Valor total','1ª fatura','Categoria','Obs']];
   for(const cp of S.compras){const c=cardById(cp.cartao)||{};linhas.push([diaFmt(cp.data)+'/'+(cp.data||'').slice(0,4),cp.desc,c.nome,c.banco,cp.tipo,cp.parcelas,String(cp.valorParcela).replace('.',','),String(cp.tipo==='parcelado'?cp.valor||cp.valorParcela*cp.parcelas:cp.valor).replace('.',','),nomeMes(cp.fatura1),cp.cat,cp.obs||''])}
   baixar('compras-'+hojeISO()+'.csv','﻿'+linhas.map(l=>l.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(';')).join('\n'),'text/csv')}
-$('#fileIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!d||!Array.isArray(d.cards)||!Array.isArray(d.compras))throw 0;
+/* Atualização: muda só o que vem no arquivo e mantém o que você cadastrou */
+function aplicarAtualizacao(u){const r={novas:0,alteradas:0,removidas:0,cartoes:0};
+  (u.cards||[]).forEach(c=>{const ex=S.cards.find(x=>x.id===c.id);if(ex){Object.assign(ex,c);r.cartoes++}else if(c.nome){S.cards.push(c);r.cartoes++}});
+  const rem=new Set(u.remover||[]);const antes=S.compras.length;S.compras=S.compras.filter(x=>!rem.has(x.id));r.removidas=antes-S.compras.length;
+  (u.compras||[]).forEach(c=>{const i=S.compras.findIndex(x=>x.id===c.id);if(i>=0){S.compras[i]=c;r.alteradas++}else{S.compras.push(c);r.novas++}});
+  Object.assign(S.pagas,u.pagas||{});S.atualizacoes=(S.atualizacoes||[]).concat([{nome:u.nome||'',em:Date.now()}]);return r}
+$('#fileIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());
+  if(d&&d.atualizacao){const r=aplicarAtualizacao(d.atualizacao);save();MES=null;TAB='inicio';render();
+    alert(`Atualização aplicada: ${d.atualizacao.nome||''}\n\n${r.novas} lançamentos novos\n${r.alteradas} corrigidos\n${r.removidas} removidos\n${r.cartoes} cartões atualizados\n\nO que você já tinha cadastrado foi mantido.`);e.target.value='';return}
+  if(!d||!Array.isArray(d.cards)||!Array.isArray(d.compras))throw 0;
   const modo=S.compras.length||S.cards.length?confirm('Substituir os dados atuais pelos do arquivo?\n\nOK = substituir · Cancelar = juntar (somar ao que já existe)'):true;
   if(modo){S=Object.assign(vazio(),d)}else{const ids=new Set(S.compras.map(x=>x.id));const cids=new Set(S.cards.map(x=>x.id));
     d.cards.forEach(c=>{if(!cids.has(c.id))S.cards.push(c)});d.compras.forEach(c=>{if(!ids.has(c.id))S.compras.push(c)});Object.assign(S.pagas,d.pagas||{})}
